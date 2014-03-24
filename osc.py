@@ -38,21 +38,22 @@
 # though I would expect later versions should work
 
 # It also requires that the "desktop" mode is enabled in pyprocgame,
-# and it requires some changes to procgame/game/gaem.py
+# and it requires some changes to procgame/game/game.py
 # See http://www.pinballcontrollers.com/forum for more information
 
-from ..game import Mode
+#from procgame.game import mode
 import OSC
 import socket
 import threading
 import pinproc
 import time
 import procgame
+from procgame.game.mode import Mode
 
 
 class OSC_Mode(Mode):
     """This is the awesome OSC interface.
-    
+
     Parameters:
     game -- game object
     priority -- game mode priority. It doesn't really matter for this mode.
@@ -65,9 +66,10 @@ class OSC_Mode(Mode):
     contacts it
     clientPort -- the client UDP port. Default is 8000
     closed_switches -- a list of switch names that you'd like to have set "closed"
-    by default, which is food for troughs and stuff. There's logic here that these
+    by default, which is good for troughs and stuff. There's logic here that these
     default switches are only set to closed with when fakepinproc is used.
     """
+
     def __init__(self, game, priority, serverIP=None, serverPort=9000,
                  clientIP=None, clientPort=8000, closed_switches=[]):
         super(OSC_Mode, self).__init__(game, priority)
@@ -95,6 +97,7 @@ class OSC_Mode(Mode):
         self.game.logger.info("OSC Server listening on %s:%s", self.serverIP,
                               self.serverPort)
         self.server_thread = threading.Thread(target=self.server.serve_forever)
+        self.server_thread.daemon = True  # needed so OSC thread shuts down
         self.server_thread.start()
         self.set_initial_closed_switches()
 
@@ -111,17 +114,16 @@ class OSC_Mode(Mode):
 
     def process_message(self, addr, tags, data, client_address):
         """Receives OSC messages and acts on them"""
-
         # separate the incoming message into category and name parts
         # for example "/sw/rollover1" is split into "sw" and "rollover1"
         cat = (addr.split("/"))[1]  # it's 1 not 0 since it begins with a delimiter
-        
+
         if cat == "refresh":  # client switched pages, mark for sync and return
             self.client_needs_sync = True
             return
-        
+
         name = addr.split("/")[2]
-        
+
         # since we just got a message from a client, let's set up a connection to it
         if not self.do_we_have_a_client:
             if not self.clientIP:  # if a client IP wasn't specified, use the one that just communicated with us now
@@ -137,7 +139,7 @@ class OSC_Mode(Mode):
 
         elif cat == "led" or cat == "LED":
             self.process_LED(name, data)
-            
+
         elif cat == "coil":
             self.process_coil(name, data)
 
@@ -148,6 +150,15 @@ class OSC_Mode(Mode):
             switch_number = self.game.switches[switchname].number
         else:
             switch_number = pinproc.decode(self.game.machine_type, switchname)
+
+        if self.game.switches[switchname].type == 'NC':
+            # Need to 'flip' the switch if the machine YAML file configures
+            # it to be normally closed
+
+            if data[0] == 1.0:
+                data[0] = 0.0
+            elif data[0] == 0.0:
+                data[0] = 1.0
 
         # I'm kind of cheating by using desktop.key_events here, but I guess this is ok?
         if data[0] == 1.0:  # close the switch
@@ -180,11 +191,11 @@ class OSC_Mode(Mode):
         It requires the pyprocgame PD-LED code from here:
         http://www.pinballcontrollers.com/forum/index.php?topic=982.0
         """
-        
+
         # create a dictionary value from the data in the OSC message
         brightness = []
         brightness.append(int(data[0]*255))
-        
+
         # if the LED name starts with '+', it's a LED board address, dash, LED output
         # for example /led/#8-60 is LED output 60 on PD-LED board at address 8
         if LED.startswith("+"):
@@ -199,7 +210,7 @@ class OSC_Mode(Mode):
 
         # send a message back to the OSC client to update any labels for this LED
         self.client_send_OSC_message("led-label", str(LED), brightness)
- 
+
     def process_coil(self, coilname, data):
         """Processes a coil event received from the OSC client."""
         if coilname in self.game.coils:
@@ -239,7 +250,7 @@ class OSC_Mode(Mode):
             self.client_send_OSC_message("sw", switch.name, data)
 
     def client_send_OSC_message(self, category, name, data):
-        """Sendz an OSC message to the client to update it
+        """Sends an OSC message to the client to update it
         Parameters:
         category - type of update, sw, coil, lamp, led, etc.
         name - the name of the object we're updating
@@ -258,23 +269,29 @@ class OSC_Mode(Mode):
         self.do_we_have_a_client = True
 
     def set_initial_closed_switches(self):
-        """If FakePinProc is being used, sets up the initial switches that should be closed, then marks the client to sync
+        """If FakePinProc is being used, sets up the initial switches that
+        should be closed, then marks the client to sync
         """
 
-        if procgame.config.values['pinproc_class'] == 'procgame.fakepinproc.FakePinPROC':
-            for switchname in self.closed_switches:  # run through the list of closed_switches passed to the mode as args
-                if switchname in self.game.switches:  # convert the names to switch numbers
+        if procgame.config.values['pinproc_class'] == \
+                'procgame.fakepinproc.FakePinPROC':
+            for switchname in self.closed_switches:
+            # run through the list of closed_switches passed to the mode as args
+                if switchname in self.game.switches:
+                    # convert the names to switch numbers
                     switch_number = self.game.switches[switchname].number
                 else:
                     switch_number = pinproc.decode(self.game.machine_type,
                                                    switchname)
                 self.game.desktop.key_events.append({
                     'type': pinproc.EventTypeSwitchClosedDebounced,
-                    'value': switch_number})  # add these switch close events to the queue
+                    # add these switch close events to the queue
+                    'value': switch_number})
 
-            self.client_needs_sync = True  # Now that this is done we set the flag to sync the client
-            # we use the flag because if we just did it now it's too fast
-            # since the game loop hasn't read in the new closures yet
+            self.client_needs_sync = True  # Now that this is done we set the
+            # flag to sync the client we use the flag because if we just did it
+            # now it's too fast since the game loop hasn't read in the new
+            # closures yet
 
     def mode_tick(self):
         """Updates the OSC client with anything changed since the last loop"""
