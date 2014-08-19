@@ -6,13 +6,13 @@
 
 # More info on OSC at http://opensoundcontrol.org/
 # This OSC interface was written by Brian Madden
-# Version 0.2 - Nov 24, 2013
+# Version 0.2.1 - Aug, 19, 2014
 
 # This code is released under the MIT License.
 
 #The MIT License (MIT)
 
-#Copyright (c) 2013 Brian Madden
+#Copyright (c) 2013-2014 Brian Madden
 
 #Permission is hereby granted, free of charge, to any person obtaining a copy
 #of this software and associated documentation files (the "Software"), to deal
@@ -273,8 +273,9 @@ class OSC_Mode(Mode):
         should be closed, then marks the client to sync
         """
 
-        if procgame.config.values['pinproc_class'] == \
-                'procgame.fakepinproc.FakePinPROC':
+        if ('pinproc_class' in procgame.config.values and
+                procgame.config.values['pinproc_class'] ==
+                'procgame.fakepinproc.FakePinPROC'):
             for switchname in self.closed_switches:
             # run through the list of closed_switches passed to the mode as args
                 if switchname in self.game.switches:
